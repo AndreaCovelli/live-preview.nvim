@@ -91,28 +91,38 @@ function M.serve_file(client, file_path, if_none_match, accept)
 			return
 		end
 
-		local etag = generate_etag(file_path)
-
-		if if_none_match and if_none_match == etag then
-			M.send_http_response(client, "304 Not Modified", get_content_type(file_path) or "", "", {
-				["ETag"] = etag,
-			})
-			return
-		end
-
 		local filetype = supported_filetype(file_path)
 		local content_type = get_content_type(file_path) or ""
 
 		-- Only convert to HTML if the client accepts text/html
 		-- This prevents converting SVG files that are referenced by <img> tags
 		local accepts_html = accept and accept:match("text/html")
-		if filetype and accepts_html then
+		local render = filetype and accepts_html
+		-- The page and the source are different representations of the same URL
+		local etag = generate_etag(file_path, render and "html" or nil)
+		-- no-cache: browsers otherwise reuse cached files by heuristics of their own
+		local headers = {
+			["ETag"] = etag,
+			["Cache-Control"] = "no-cache",
+			["Vary"] = filetype and "Accept" or nil,
+		}
+
+		if if_none_match and if_none_match == etag then
+			M.send_http_response(client, "304 Not Modified", content_type, "", headers)
+			return
+		end
+
+		if render then
 			if filetype ~= "html" then
 				body = toHTML(body, filetype)
-				-- ws-client.js checks the page against the file on disk with it
-				if etag then
+				-- ws-client.js checks the page against the file on disk with it, which it
+				-- fetches as the source
+				local source_etag = generate_etag(file_path)
+				if source_etag then
 					body = body:gsub("<head>", function()
-						return ('<head><meta name="livepreview-etag" content="%s">'):format((etag:gsub('"', "&quot;")))
+						return ('<head><meta name="livepreview-etag" content="%s">'):format(
+							(source_etag:gsub('"', "&quot;"))
+						)
 					end, 1)
 				end
 			else
@@ -121,9 +131,7 @@ function M.serve_file(client, file_path, if_none_match, accept)
 			content_type = "text/html; charset=UTF-8"
 		end
 
-		M.send_http_response(client, "200 OK", content_type, body, {
-			["ETag"] = etag,
-		})
+		M.send_http_response(client, "200 OK", content_type, body, headers)
 	end)
 end
 
