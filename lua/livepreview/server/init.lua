@@ -226,15 +226,16 @@ function Server:start(ip, port, opts)
 					local path = req_info.path
 					local if_none_match = req_info.if_none_match
 					local accept = req_info.accept
+					local raw = req_info.raw
 					local file_path = self:routes(path)
 					local stat = file_path and uv.fs_stat(file_path)
 					-- The handlers close the connection once the response is sent
 					if not file_path then
 						handler.send_http_response(client, "404 Not Found", "text/plain", "404 Not Found")
 					elseif stat and stat.type == "directory" then
-						handler.serve_dir(client, file_path, path, if_none_match, accept)
+						handler.serve_dir(client, file_path, path, if_none_match, accept, raw)
 					else
-						handler.serve_file(client, file_path, if_none_match, accept)
+						handler.serve_file(client, file_path, if_none_match, accept, raw)
 					end
 				elseif not client:is_closing() then
 					-- handler.request returns nil only after a WebSocket
